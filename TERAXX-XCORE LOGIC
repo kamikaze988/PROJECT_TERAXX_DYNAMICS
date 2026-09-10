@@ -1,0 +1,986 @@
+#include <WiFi.h>
+#include <WebServer.h>
+#include <Bluepad32.h>
+#include <ESP32Servo.h>
+#include <ArduinoJson.h>
+#include <TinyGPS++.h>
+#include <esp_task_wdt.h>
+
+//////////////////////////////////////////////////////////
+// PINS & OBJECTS
+//////////////////////////////////////////////////////////
+#define ESC_PIN 27
+#define SERVO_PIN 18
+#define HALO_PIN 4
+#define ROOF_PIN 17
+#define BRAKE_LIGHT_PIN 16
+#define MODE_LED 2
+#define BATTERY_PIN 34
+#define GPS_RX_PIN 13
+#define GPS_TX_PIN 12
+#define DEBUG 0
+
+Servo esc;
+Servo steeringServo;
+GamepadPtr myGamepad = nullptr;
+WebServer server(80);
+TinyGPSPlus gps;
+HardwareSerial gpsSerial(2);
+
+//////////////////////////////////////////////////////////
+// GLOBAL STATE
+//////////////////////////////////////////////////////////
+enum DriveMode { MODE_PRECISION,
+                 MODE_BEAST };
+DriveMode currentMode = MODE_PRECISION;
+DriveMode lastLedMode = MODE_PRECISION;
+
+float currentThrottle = 0.0;
+int targetThrottle = 0;
+float currentSteer = 90.0;
+float targetSteer = 90.0;
+int airAdjust = 0;   // mid-air control adjustment
+int steerSens = 30;  // Steering sensitivity (degrees)
+int steerTrim = 0;   // Steering trim offset
+int sLimit = 30;
+int steerCenter() {
+  return 90 + steerTrim;
+}
+
+// Navigation
+double homeLat = 0, homeLon = 0;
+bool homeSet = false, isReturningHome = false;
+unsigned long lastGamepadTime = 0;
+unsigned long lastControlTime = 0;
+const unsigned long FAILSAFE_TIMEOUT = 1500;
+
+// Feature States
+bool BackFlip = false, FrontFlip = false, driftState = false;
+bool haloState = false, roofState = false, tiltMode = false;
+bool wheelieState = false, boostActive = false, failsafePrinted = false;
+unsigned long wheelieStartTime = 0, padWheelieTime = 0, xPressTime = 0, lastR1Press = 0;
+bool xLast = false, yLast = false, r1Last = false, l1Last = false;
+bool flashTriggered = false;
+const int TAP_TIME = 200;   // max time for tap
+const int HOLD_TIME = 300;  // hold threshold
+
+bool l2Current = false;
+bool l2Last = false;
+
+unsigned long lastL2Press = 0;
+const int doubleClickTime = 300;
+
+Servo airBrake;
+
+/* Spoiler angles */
+const int SPOILER_FLAT = 0;
+const int SPOILER_DRIFT = 15;
+const int SPOILER_BOOST = 10;
+const int SPOILER_BRAKE = 90;
+const int SPOILER_FRONTFLIP = 30;
+const int SPOILER_BACKFLIP = 45;
+
+/* Smooth movement */
+int currentAngle = SPOILER_FLAT;
+int targetAngle = SPOILER_FLAT;
+const int servoPin = 26;
+
+unsigned long lastServoUpdate = 0;
+const int servoSpeed = 2;      // lower = smoother
+const int servoInterval = 15;  // update every 15ms
+
+// ==============================
+// TILT STEERING SETTINGS
+// ==============================
+float steeringSensitivity = 1.0;
+const float minSensitivity = 0.3;
+const float maxSensitivity = 2.0;
+const float tiltDeadzone = 0.12;
+int lastDpad = 0;
+
+// ============================
+// PS4 POWER BUTTON SHUTDOWN// ============================
+unsigned long homePressStart = 0;
+bool homeHeld = false;
+const int shutdownTime = 5000;  // 5 seconds
+
+///////////////////////////////////////
+// POWER LEVELS (1/18 BASher tuning) //
+///////////////////////////////////////
+const int POWER_PRECISION = 450;
+const int POWER_BOOST = 700;
+const int POWER_WHEELIE = 880;
+const int POWER_BEAST_MAX = 950;
+
+// ======= LOW VOLTAGE CUTOFF(LVC) =======
+float lowVoltagecutoff = 6.4;
+float voltage = 0;
+
+// ===== Battery LED Flash System =====
+bool lowBattFlashActive = false;
+int flashCount = 0;
+unsigned long lastFlashTime = 0;
+const int FLASH_INTERVAL = 200;  // milliseconds
+
+//======== HOBBY GRADE ESC SYSTEM ======
+enum ESCState {
+  ESC_NEUTRAL,
+  ESC_FORWARD,
+  ESC_BRAKE,
+  ESC_REVERSE
+};
+
+ESCState escState = ESC_NEUTRAL;
+unsigned long lastBrakeTime = 0;
+const int BRAKE_DELAY = 300;  // ms before allowing reverse
+
+const char index_html[] PROGMEM =
+  "<!DOCTYPE html>"
+  "<html>"
+  "<head>"
+  "<meta name='viewport' content='width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no'>"
+  "<title>TERAXX_X-CORE WEB HUD</title>"
+  "<style>"
+  ":root {"
+  "  --neon: #00e5ff;"
+  "  --bg: #06080f;"
+  "  --glass: rgba(10, 15, 25, 0.55);"
+  "  --border: rgba(0, 229, 255, 0.3);"
+  "  --boost: #ffaa00;"
+  "}"
+  "body {"
+  "  margin: 0;"
+  "  background: var(--bg);"
+  "  font-family: 'Courier New', monospace;"
+  "  color: var(--neon);"
+  "  overflow: hidden;"
+  "  text-transform: uppercase;"
+  "  user-select: none;"
+  "  -webkit-user-select: none;"
+  "  touch-action: none;"
+  "  box-sizing: border-box;"
+  "  transition: background 0.4s cubic-bezier(0.4, 0, 0.2, 1);"
+  "}"
+  "*, *:before, *:after {"
+  "  box-sizing: inherit;"
+  "}"
+  "body.beast {"
+  "  --neon: #ff0000;"
+  "  --border: rgba(255, 0, 0, 0.9);"
+  "  --glass: rgba(25, 0, 0, 0.8);"
+  "  --boost: #ff4400;"
+  "  background: #120000;"
+  "  animation: pulse-blood 0.6s infinite alternate cubic-bezier(0.4, 0, 0.2, 1);"
+  "}"
+  "@keyframes pulse-blood {"
+  "  0% { background: #120000; box-shadow: inset 0 0 40px rgba(255, 0, 0, 0.3); }"
+  "  100% { background: #2f0000; box-shadow: inset 0 0 120px rgba(255, 0, 0, 0.75); }"
+  "}"
+  "body.beast .panel {"
+  "  box-shadow: 0 0 35px rgba(255, 0, 0, 0.45);"
+  "  border-color: rgba(255, 0, 0, 0.5);"
+  "  backdrop-filter: blur(15px);"
+  "}"
+  ".panel {"
+  "  background: var(--glass);"
+  "  border: 1px solid var(--border);"
+  "  border-radius: 10px;"
+  "  backdrop-filter: blur(10px);"
+  "  padding: 12px;"
+  "  position: absolute;"
+  "  box-shadow: 0 0 25px rgba(0, 0, 0, 0.6);"
+  "  transition: transform 0.1s, box-shadow 0.3s, border-color 0.4s;"
+  "}"
+  ".draggable { cursor: grab; }"
+  ".settings .panel {"
+  "  outline: 2px dashed yellow;"
+  "  cursor: move;"
+  "  z-index: 100;"
+  "}"
+  ".settings .panel:active {"
+  "  transform: scale(1.05);"
+  "  box-shadow: 0 0 40px rgba(255, 255, 0, 0.4);"
+  "}"
+  "#topBar   { top: 2vh; left: 5vw; width: 90vw; display: flex; justify-content: space-between; align-items: center; }"
+  "#dash     { top: 12vh; left: 5vw; width: 140px; text-align: center; }"
+  "#rpmBox   { top: 12vh; left: 50vw; transform: translateX(-50%); width: 150px; }"
+  "#boostBox { top: 22vh; left: 50vw; transform: translateX(-50%); width: 150px; }"
+  "#map-box  { top: 12vh; left: 80vw; transform: translateX(-50%); width: 110px; height: 110px; border-radius: 50%; display: flex; justify-content: center; align-items: center; }"
+  "#joyArea  { top: 60vh; left: 10vw; width: 150px; height: 150px; border-radius: 50%; display: flex; justify-content: center; align-items: center; }"
+  "#actionGrid { top: 60vh; left: 50vw; width: 300px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }"
+  "#battery { flex: 1; margin-right: 15px; }"
+  ".batt-bar { height: 8px; background: #111; border-radius: 4px; overflow: hidden; margin-top: 5px; }"
+  "#battFill { height: 100%; width: 100%; background: var(--neon); transition: 0.3s; }"
+  ".lowBatt { animation: battflash 0.5s infinite; }"
+  "@keyframes battflash {"
+  "  0% { background: red; }"
+  "  50% { background: #300; }"
+  "  100% { background: red; }"
+  "}"
+  "#speedVal { font-size: clamp(32px, 5vw, 42px); text-shadow: 0 0 15px var(--neon); }"
+  ".bar-track { height: 10px; background: #111; border-radius: 6px; overflow: hidden; margin-top: 5px; }"
+  "#rpmFill { height: 100%; width: 0%; background: var(--neon); }"
+  "#boostFill { height: 100%; width: 0%; background: var(--boost); }"
+  "#compassRing { position: absolute; width: 100%; height: 100%; border-radius: 50%; border: 1px solid var(--border); }"
+  "#carDot { width: 8px; height: 8px; background: #fff; border-radius: 50%; position: absolute; box-shadow: 0 0 10px #fff; }"
+  "#joyStick { width: 55px; height: 55px; border-radius: 50%; border: 2px solid var(--neon); background: #111; box-shadow: inset 0 0 20px var(--neon); transition: transform 0.1s; }"
+  ".btn { padding: 12px; background: var(--glass); border: 1px solid var(--border); color: var(--neon); font-weight: bold; border-radius: 6px; cursor: pointer; transition: 0.2s; }"
+  ".btn:active, .btn.active { background: var(--neon); color: #000; box-shadow: 0 0 15px var(--neon); }"
+  "button { background: none; border: none; color: var(--neon); cursor: pointer; font-size: 20px; }"
+  "@media (max-width: 600px) {"
+  "  #dash { width: 110px; }"
+  "  #map-box { width: 90px; height: 90px; }"
+  "  #joyArea { width: 120px; height: 120px; }"
+  "  #joyStick { width: 45px; height: 45px; }"
+  "  #actionGrid { width: 200px; grid-template-columns: 1fr 1fr; }"
+  "  .btn { padding: 10px; font-size: 12px; }"
+  "}"
+  "</style>"
+  "</head>"
+  "<body>"
+  "<div id='topBar' class='panel draggable'>"
+  "  <div id='battery'>"
+  "    <div>BATT: <span id='battText'>--.-V</span></div>"
+  "    <div class='batt-bar'><div id='battFill'></div></div>"
+  "  </div>"
+  "  <div id='modeBox' onclick=\"fetch('/cmd?mode=toggle')\" style='cursor:pointer; margin-right: 15px;'>"
+  "    MODE: <span id='modeText'>PRECISION</span>"
+  "  </div>"
+  "  <button onclick='toggleSettings()'><svg xmlns='http://www.w3.org/2000/svg' width='24' "
+  "    height='24' viewBox='0 0 512 512' style='fill: none; stroke: var(--neon); stroke-linecap: round; stroke-linejoin: round; stroke-width: 32px;'>"
+  "    <path d='M262.29 160c-21.28 0-41.27 10.12-54.67 27.77-13.12 17.29-18.4 39.31-14.47 60.34a81.94 81.94 0 0054.49 63.51c20.31 6 42.19 1.68 58.55-11.55a82.2 82.2 0 0029-61.94c.16-21.73-9.52-42.31-26.54-56.51A81.56 81.56 0 00262.29 160z'/>"
+  "    <path d='M449.92 233.1l-40.48-12.2a210.74 210.74 0 00-24.16-58.3l23.51-35.45a7 7 0 00-1-8.77l-26.6-26.6a7 7 0 00-8.77-1l-35.45 23.51a210.74 210.74 0 00-58.3-24.16L266.9 31a7 7 0 00-6.9-5.9h-37.6a7 7 0 00-6.9 5.9l-12.2 40.48a210.74 210.74 0 00-58.3 24.16l-35.45-23.51a7 7 0 00-8.77 1l-26.6 26.6a7 7 0 00-1 8.77l23.51 35.45a210.74 210.74 0 00-24.16 58.3L31 233.1a7 7 0 00-5.9 6.9v37.6a7 7 0 005.9 6.9l40.48 12.2a211.3 211.3 0 0024.16 58.3l-23.51 35.45a7 7 0 001 8.77l26.6 26.6a7 7 0 008.77 1l35.45-23.51a211.3 211.3 0 0058.3 24.16l12.2 40.48a7 7 0 006.9 5.9h37.6a7 7 0 006.9-5.9l12.2-40.48a211.3 211.3 0 0058.3-24.16l35.45 23.51a7 7 0 008.77-1l26.6-26.6a7 7 0 001-8.77l-23.51-35.45a211.3 211.3 0 0024.16-58.3l40.48-12.2a7 7 0 005.9-6.9v-37.6a7 7 0 00-5.9-6.9zM256 336a80 80 0 1180-80 80.09 80.09 0 01-80 80z'/>"
+  "  </svg></button>"
+  "</div>"
+  "<div id='dash' class='panel draggable'>"
+  "  <div>SPEED</div>"
+  "  <span id='speedVal'>000</span>"
+  "</div>"
+  "<div id='rpmBox' class='panel draggable'>"
+  "  RPM"
+  "  <div class='bar-track'><div id='rpmFill'></div></div>"
+  "</div>"
+  "<div id='boostBox' class='panel draggable'>"
+  "  BOOST"
+  "  <div class='bar-track'><div id='boostFill'></div></div>"
+  "</div>"
+  "<div id='map-box' class='panel draggable'>"
+  "  <div id='compassRing'></div>"
+  "  <div id='carDot'></div>"
+  "</div>"
+  "<div id='joyArea' class='panel draggable'>"
+  "  <div id='joyStick'></div>"
+  "</div>"
+  "<div id='actionGrid' class='panel draggable'>"
+  "  <button class='btn' onpointerdown=\"pressAction('throttle')\" onpointerup=\"releaseAction('throttle')\" onpointercancel=\"releaseAction('throttle')\">THROTTLE</button>"
+  "  <button class='btn' onpointerdown=\"pressAction('reverse')\" onpointerup=\"releaseAction('reverse')\" onpointercancel=\"releaseAction('reverse')\">REVERSE</button>"
+  "  <button class='btn' onpointerdown=\"pressAction('wheelie')\" onpointerup=\"releaseAction('wheelie')\" onpointercancel=\"releaseAction('wheelie')\">WHEELIE</button>"
+  "  <button class='btn' onpointerdown=\"pressAction('boost')\" onpointerup=\"releaseAction('boost')\" onpointercancel=\"releaseAction('boost')\">BOOST</button>"
+  "  <button class='btn' onclick='toggleHalo(this)'>HALO</button>"
+  "  <button class='btn' onclick='toggleRoof(this)'>ROOF</button>"
+  "</div>"
+  "<script>"
+  "const speedVal = document.getElementById('speedVal');"
+  "const battText = document.getElementById('battText');"
+  "const battFill = document.getElementById('battFill');"
+  "const rpmFill = document.getElementById('rpmFill');"
+  "const boostFill = document.getElementById('boostFill');"
+  "const modeText = document.getElementById('modeText');"
+  "const joy = document.getElementById('joyStick');"
+  "const mapBox = document.getElementById('map-box');"
+  "const compassring = document.getElementById('compassRing');"
+  "let activeActions = new Set();"
+  "let currentCmd = 'stop';"
+  "let currentSteer = 0;"
+  "let lastSentCmd = 'stop';"
+  "let lastSentSteer = 0;"
+  "let settings = false;"
+  "let heading = 0;"
+  "const toggleSettings = () => {"
+  "  settings = !settings;"
+  "  document.body.classList.toggle('settings');"
+  "};"
+  "const loadPositions = () => {"
+  "  document.querySelectorAll('.draggable').forEach(el => {"
+  "    let saved = localStorage.getItem('hud_pos_' + el.id);"
+  "    if (saved) {"
+  "      let pos = JSON.parse(saved);"
+  "      el.style.left = pos.left;"
+  "      el.style.top = pos.top;"
+  "      el.style.transform = 'none';"
+  "    }"
+  "  });"
+  "};"
+  "loadPositions();"
+  "let activeDrag = null;"
+  "let offsetX = 0;"
+  "let offsetY = 0;"
+  "document.querySelectorAll('.draggable').forEach(el => {"
+  "  el.addEventListener('pointerdown', e => {"
+  "    if (!settings || e.target.classList.contains('btn') || e.target.id === 'joyStick') return;"
+  "    activeDrag = el;"
+  "    let rect = el.getBoundingClientRect();"
+  "    offsetX = e.clientX - rect.left;"
+  "    offsetY = e.clientY - rect.top;"
+  "    el.style.zIndex = 1000;"
+  "  });"
+  "});"
+  "document.addEventListener('pointermove', e => {"
+  "  if (!activeDrag || !settings) return;"
+  "  let x = e.clientX - offsetX;"
+  "  let y = e.clientY - offsetY;"
+  "  let maxX = window.innerWidth - activeDrag.offsetWidth;"
+  "  let maxY = window.innerHeight - activeDrag.offsetHeight;"
+  "  x = Math.max(0, Math.min(x, maxX));"
+  "  y = Math.max(0, Math.min(y, maxY));"
+  "  let vw = (x / window.innerWidth) * 100;"
+  "  let vh = (y / window.innerHeight) * 100;"
+  "  activeDrag.style.left = vw + 'vw';"
+  "  activeDrag.style.top = vh + 'vh';"
+  "  activeDrag.style.transform = 'none';"
+  "});"
+  "document.addEventListener('pointerup', () => {"
+  "  if (activeDrag) {"
+  "    localStorage.setItem('hud_pos_' + activeDrag.id, JSON.stringify({"
+  "      left: activeDrag.style.left,"
+  "      top: activeDrag.style.top"
+  "    }));"
+  "    activeDrag.style.zIndex = '';"
+  "    activeDrag = null;"
+  "  }"
+  "});"
+  "const pressAction = (act) => {"
+  "  activeActions.add(act);"
+  "  evaluateState();"
+  "};"
+  "const releaseAction = (act) => {"
+  "  activeActions.delete(act);"
+  "  evaluateState();"
+  "};"
+  "const evaluateState = () => {"
+  "  if (activeActions.has('boost')) currentCmd = 'boost';"
+  "  else if (activeActions.has('wheelie')) currentCmd = 'wheelie';"
+  "  else if (activeActions.has('throttle')) currentCmd = 'throttle';"
+  "  else if (activeActions.has('reverse')) currentCmd = 'reverse';"
+  "  else currentCmd = 'stop';"
+  "};"
+  "const toggleHalo = (btn) => {"
+  "  btn.classList.toggle('active');"
+  "  fetch('/cmd?halo=' + (btn.classList.contains('active') ? 1 : 0)).catch(()=>{});"
+  "};"
+  "const toggleRoof = (btn) => {"
+  "  btn.classList.toggle('active');"
+  "  fetch('/cmd?roof=' + (btn.classList.contains('active') ? 1 : 0)).catch(()=>{});"
+  "};"
+  "joy.addEventListener('pointermove', e => {"
+  "  if (e.pressure > 0) {"
+  "    let rect = joy.parentElement.getBoundingClientRect();"
+  "    let x = Math.max(-50, Math.min(50, e.clientX - rect.left - rect.width / 2));"
+  "    joy.style.transform = `translateX(${x}px)`;"
+  "    currentSteer = Math.round(x * 2.5);"
+  "  }"
+  "});"
+  "const resetJoy = () => {"
+  "  joy.style.transform = 'translateX(0px)';"
+  "  currentSteer = 0;"
+  "};"
+  "joy.addEventListener('pointerup', resetJoy);"
+  "joy.addEventListener('pointercancel', resetJoy);"
+  "setInterval(() => {"
+  "  if (currentCmd !== lastSentCmd || currentSteer !== lastSentSteer) {"
+  "    lastSentCmd = currentCmd;"
+  "    lastSentSteer = currentSteer;"
+  "    fetch(`/cmd?c=${currentCmd}&steer=${currentSteer}`).catch(()=>{});"
+  "  }"
+  "}, 30);"
+  "const updateHUD = () => {"
+  "  fetch('/telemetry')"
+  "    .then(r => r.json())"
+  "    .then(data => {"
+  "      let speed = Math.abs(data.speed);"
+  "      speedVal.innerText = speed.toString().padStart(3, '0');"
+  "      rpmFill.style.width = Math.min(100, (speed / 900) * 100) + '%';"
+  "      boostFill.style.width = Math.min(100, (speed / 700) * 100) + '%';"
+  "      battText.innerText = data.batt.toFixed(1) + 'V';"
+  "      let battPercent = Math.max(0, Math.min(100, (data.batt - 6.4) / (8.4 - 6.4) * 100));"
+  "      battFill.style.width = battPercent + '%';"
+  "      if (data.batt < 6.8) battFill.parentElement.classList.add('lowBatt');"
+  "      else battFill.parentElement.classList.remove('lowBatt');"
+  "      document.body.classList.toggle('beast', data.mode === 'BEAST');"
+  "      modeText.innerText = data.mode;"
+  "      if (data.heading !== undefined) {"
+  "        heading += (data.heading - heading) * 0.15;"
+  "        mapBox.style.transform = `rotate(${-heading}deg)`;"
+  "        compassring.style.transform = `rotate(${-heading}deg)`;"
+  "      }"
+  "    }).catch(() => {});"
+  "};"
+  "setInterval(updateHUD, 75);"
+  "document.addEventListener('keydown', e => {"
+  "  if(e.key === 'i') pressAction('throttle');"
+  "  if(e.key === 'x') pressAction('reverse');"
+  "  if(e.key === 'b') pressAction('boost');"
+  "  if(e.key === 'w') pressAction('wheelie');"
+  "  if(e.key === 'd') currentSteer = 40;"
+  "  if(e.key === 'a') currentSteer = -40;"
+  "});"
+  "document.addEventListener('keyup', e => {"
+  "  if(e.key === 'i') releaseAction('throttle');"
+  "  if(e.key === 'x') releaseAction('reverse');"
+  "  if(e.key === 'b') releaseAction('boost');"
+  "  if(e.key === 'w') releaseAction('wheelie');"
+  "  if(['a','d'].includes(e.key)) currentSteer = 0;"
+  "});"
+  "</script>"
+  "</body>"
+  "</html>";
+
+//////////////////////////////////////////////////////////
+// LOGIC MODULES
+//////////////////////////////////////////////////////////
+
+void processGPS() {
+  int limit = 0;
+  while (gpsSerial.available() > 0 && limit < 64) {
+    gps.encode(gpsSerial.read());
+    limit++;
+  }
+  if (gps.location.isValid() && !homeSet) {
+    homeLat = gps.location.lat();
+    homeLon = gps.location.lng();
+    homeSet = true;
+  }
+}
+
+void navigateHome() {
+  if (!homeSet || !gps.location.isValid()) {
+    targetThrottle = 0;
+    return;
+  }
+  double dist = gps.distanceBetween(gps.location.lat(), gps.location.lng(), homeLat, homeLon);
+  if (dist > 2.0) {
+    double course = gps.courseTo(gps.location.lat(), gps.location.lng(), homeLat, homeLon);
+    int center = 90 + steerTrim;
+    double headingDeg = gps.course.deg();
+    double error = course - headingDeg;
+
+    if (error > 180) error -= 360;
+    if (error < -180) error += 360;
+
+    targetSteer = constrain(center + error * 0.7, center - steerSens, center + steerSens);
+    targetThrottle = 150;
+  } else {
+    targetThrottle = 0;
+    isReturningHome = false;
+  }
+}
+
+void handleCmd() {
+  String c = server.arg("c"),
+         steer = server.arg("steer"),
+         sens = server.arg("sens"),
+         trim = server.arg("trim");
+  String modeArg = server.arg("mode"),
+         driftArg = server.arg("drift");
+  String haloArg = server.arg("halo");
+  String roofArg = server.arg("roof");
+
+  if (modeArg == "toggle") {
+    currentMode = (currentMode == MODE_BEAST) ? MODE_PRECISION : MODE_BEAST;
+    digitalWrite(MODE_LED, currentMode == MODE_BEAST);
+  }
+  if (driftArg == "toggle") driftState = !driftState;
+  if (sens != "") steerSens = sens.toInt();
+  if (trim != "") steerTrim = trim.toInt();
+  if (haloArg != "") {
+    haloState = haloArg.toInt();
+    digitalWrite(HALO_PIN, haloState);
+  }
+  if (roofArg != "") {
+    roofState = roofArg.toInt();
+    digitalWrite(ROOF_PIN, roofState);
+  }
+  if (steer != "") {
+    int center = 90 + steerTrim;
+    targetSteer = map(steer.toInt(), -100, 100, center - steerSens, center + steerSens);
+  }
+
+  if (c == "throttle") targetThrottle = (currentMode == MODE_BEAST) ? 600 : 300;
+  if (c == "reverse") targetThrottle = -300;
+  if (c == "stop") {
+    targetThrottle = 0;
+    wheelieState = false;
+  }
+  if (c == "boost") targetThrottle = POWER_BOOST;
+  if (c == "wheelie") {
+    wheelieState = true;
+    wheelieStartTime = millis();
+  }
+
+  server.send(200, "text/plain", "OK");
+}
+
+void handleTelemetry() {
+  lastControlTime = millis();
+  JsonDocument doc;
+  doc["speed"] = (int)currentThrottle;
+  doc["mode"] = (currentMode == MODE_BEAST) ? "BEAST" : "PRECISION";
+  doc["batt"] = (analogRead(BATTERY_PIN) * (3.3 / 4095.0) * 4.7);
+  doc["drift"] = driftState;
+  if (gps.location.isValid()) {
+    doc["heading"] = gps.course.deg();
+  }
+  if (homeSet) {
+    doc["relX"] = (gps.location.lng() - homeLon) * 100000;
+    doc["relY"] = (homeLat - gps.location.lat()) * 100000;
+  } else {
+    doc["relX"] = 0;
+    doc["relY"] = 0;
+  }
+
+  String json;
+  serializeJson(doc, json);
+  server.send(200, "application/json", json);
+}
+
+void onConnectedGamepad(GamepadPtr gp) {
+  Serial.println("Gamepad Connected!");
+  myGamepad = gp;
+}
+
+void onDisconnectedGamepad(GamepadPtr gp) {
+  myGamepad = nullptr;
+}
+
+void updateGamepadLed(unsigned long now) {
+  if (!myGamepad) return;
+
+  if (lowBattFlashActive) {
+    if (now - lastFlashTime >= FLASH_INTERVAL) {
+      if (flashCount % 2 == 0) {
+        myGamepad->setColorLED(255, 0, 0);  // RED
+      } else {
+        myGamepad->setColorLED(0, 0, 0);  // OFF
+      }
+      flashCount++;
+      lastFlashTime = now;
+    }
+    return;
+  }
+
+  if (currentMode != lastLedMode) {
+    if (currentMode == MODE_BEAST)
+      myGamepad->setColorLED(255, 0, 0);
+    else
+      myGamepad->setColorLED(0, 255, 0);
+
+    lastLedMode = currentMode;
+  }
+}
+
+void updateServoSmooth() {
+  if (millis() - lastServoUpdate < servoInterval) return;
+  lastServoUpdate = millis();
+
+  if (currentAngle < targetAngle) currentAngle += servoSpeed;
+  else if (currentAngle > targetAngle) currentAngle -= servoSpeed;
+
+  airBrake.write(currentAngle);
+}
+
+int processTiltSteering(int ax) {
+  // convert ESP32 accel range to -1.0 ~ 1.0
+  float tilt = ax / 512.0;
+  // DEADZONE
+  if (abs(tilt) < tiltDeadzone) {
+    tilt = 0;
+  }
+  // remove deadzone gap
+  if (tilt > 0) {
+    tilt =
+      (tilt - tiltDeadzone) / (1.0 - tiltDeadzone);
+  } else if (tilt < 0) {
+    tilt =
+      (tilt + tiltDeadzone) / (1.0 - tiltDeadzone);
+  }
+  // sensitivity adjustment
+  tilt *= steeringSensitivity;
+  // limit
+  tilt =
+    constrain(tilt, -1.0, 1.0);
+  return map(tilt * 100, -100, 100, steerCenter() - sLimit, steerCenter() + sLimit);
+}
+void processGamepad(ControllerPtr myGamepad) {
+  // 1. Check if the PS button is currently held down
+  // In Bluepad32, the PS button maps to bit 0x01 of miscButtons
+  bool psButtonPressed = (myGamepad->miscButtons() & 0x01);
+
+  // Keep track of the button state and timing across loops
+  static uint32_t psButtonPressStartTime = 0;
+  static bool wasPsPressed = false;
+
+  if (psButtonPressed) {
+    if (!wasPsPressed) {
+      // Record the exact millisecond the user started pressing the button
+      psButtonPressStartTime = millis();
+      wasPsPressed = true;
+      Serial.println("PS button detected. Holding for countdown...");
+    }
+    // Check if the button has been held down for 5000ms (5 seconds)
+    else if (millis() - psButtonPressStartTime >= 5000) {
+      Serial.println("5 seconds reached! Initiating soft shutdown.");
+      // Turn off player LEDs and stop any vibration
+      myGamepad->setPlayerLEDs(0);
+      myGamepad->playDualRumble(0, 0, 0, 0);
+      // Sever the link so the gamepad drops into sleep mode
+      myGamepad->disconnect();
+      // Reset our trackers
+      wasPsPressed = false;
+      return;
+    }
+  } else {
+    // If they let go before 5 seconds, reset the timer completely
+    wasPsPressed = false;
+  }
+}
+//////////////////////////////////////////////////////////
+// SETUP & LOOP
+//////////////////////////////////////////////////////////
+
+void setup() {
+  Serial.begin(115200);
+  Serial.println("Bluetooth ready...");
+  gpsSerial.begin(9600, SERIAL_8N1, GPS_RX_PIN, GPS_TX_PIN);
+  esc.attach(ESC_PIN);
+  steeringServo.attach(SERVO_PIN);
+  airBrake.attach(servoPin);
+  airBrake.write(SPOILER_FLAT);
+  pinMode(HALO_PIN, OUTPUT);
+  pinMode(ROOF_PIN, OUTPUT);
+  pinMode(BRAKE_LIGHT_PIN, OUTPUT);
+  pinMode(MODE_LED, OUTPUT);
+
+  WiFi.disconnect(true);
+  WiFi.mode(WIFI_OFF);
+  delay(500);
+
+  WiFi.mode(WIFI_AP);
+  delay(300);
+
+  IPAddress local_IP(192, 168, 4, 1);
+  IPAddress gateway(192, 168, 4, 1);
+  IPAddress subnet(255, 255, 255, 0);
+  WiFi.softAPConfig(local_IP, gateway, subnet);
+
+  bool apStarted = WiFi.softAP("TERAXX_X-CORE", "123456789", 6, 0, 8);
+
+  if (apStarted) {
+    Serial.println("AP Started Successfully!");
+    Serial.print("Hotspot IP Address: 192.198.4.1 ");
+    Serial.println(WiFi.softAPIP());
+  } else {
+    Serial.println("AP Failed");
+  }
+
+  server.on("/", []() {
+    server.send_P(200, "text/html", index_html);
+  });
+  server.on("/cmd", handleCmd);
+  server.on("/telemetry", handleTelemetry);
+  server.begin();
+
+  delay(1000);
+
+  BP32.setup(&onConnectedGamepad, &onDisconnectedGamepad);
+  esp_task_wdt_init(5, true);
+  esp_task_wdt_add(NULL);
+}
+
+void loop() {
+  BP32.update();
+  esp_task_wdt_reset();
+
+  server.handleClient();
+  esp_task_wdt_reset();
+
+  processGPS();
+  esp_task_wdt_reset();
+
+ if (Serial.available()) {
+    String command = Serial.readStringUntil('
+');
+    command.trim(); // Remove newline or spaces
+
+    if (command.equalsIgnoreCase("RESET")) {
+      Serial.println("Restarting ESP32...");
+      ESP.restart(); // Perform software reset
+    } else {
+      Serial.println("Received: " + command);
+    }
+  }
+
+  unsigned long now = millis();
+  bool connected = (myGamepad && myGamepad->isConnected());
+
+
+  if (!connected) {
+    if (now - lastGamepadTime > FAILSAFE_TIMEOUT) {
+      isReturningHome = true;
+      navigateHome();
+      currentThrottle += (targetThrottle - currentThrottle) * 0.08f;
+      if (!failsafePrinted) {
+        Serial.println("failsafe/GPS(RTH) active");
+        failsafePrinted = true;
+      }
+      int escSignal = constrain(1500 + (int)currentThrottle, 1000, 2000);
+      esc.writeMicroseconds(escSignal);
+    } else {
+      targetThrottle = 0;
+      currentThrottle = 0;
+
+      targetSteer = steerCenter();
+      currentSteer = steerCenter();
+      esc.writeMicroseconds(1500);
+    }
+    updateGamepadLed(now);
+    failsafePrinted = false;
+    return;
+  }
+
+  // R1 DRIVE MODE TOGGLE
+  if (myGamepad->r1() && !r1Last) {
+    if (now - lastR1Press < 300) {
+      currentMode = (currentMode == MODE_BEAST) ? MODE_PRECISION : MODE_BEAST;
+      digitalWrite(MODE_LED, currentMode == MODE_BEAST);
+      Serial.println("beast/precision mode toggled");
+    }
+    lastR1Press = now;
+  }
+  r1Last = myGamepad->r1();
+
+  // L1 Tilt Toggle
+  if (myGamepad->l1() && !l1Last) {
+    tiltMode = !tiltMode;
+    Serial.print("tilt mode changes to: ");
+    Serial.println(tiltMode);
+  }
+  l1Last = myGamepad->l1();
+
+  // Roof Lights
+  if (myGamepad->y() && !yLast) {
+    Serial.println("roof light toggled");
+    roofState = !roofState;
+    digitalWrite(ROOF_PIN, roofState);
+  }
+  yLast = myGamepad->y();
+
+  // HALO LIGHT AND BOOST
+  bool xNow = myGamepad->x();
+  if (xNow && !xLast) {
+    xPressTime = now;
+  }
+  if (xNow && (now - xPressTime > HOLD_TIME)) {
+    boostActive = true;
+  }
+  if (!xNow && xLast) {
+    if (now - xPressTime < TAP_TIME) {
+      haloState = !haloState;
+      digitalWrite(HALO_PIN, haloState);
+      Serial.println("headlight toggled");
+    }
+    boostActive = false;
+  }
+  xLast = xNow;
+
+  // Drift State (B button)
+  driftState = myGamepad->b();
+  int center = 90 + steerTrim;
+  int sLimit = driftState ? (steerSens / 2) : steerSens;
+
+  /// D-pad steering sensitivity///////
+  uint8_t dpad = myGamepad->dpad();
+  static uint8_t lastDpad = 0;
+  if (dpad != lastDpad) {
+    if (dpad == DPAD_UP) {
+      steeringSensitivity += 0.1;
+
+      if (steeringSensitivity > maxSensitivity)
+        steeringSensitivity = maxSensitivity;
+
+      Serial.print("Steering sensitivity: ");
+      Serial.println(steeringSensitivity);
+    }
+    if (dpad == DPAD_DOWN) {
+      steeringSensitivity -= 0.1;
+
+      if (steeringSensitivity < minSensitivity)
+        steeringSensitivity = minSensitivity;
+
+      Serial.print("Steering sensitivity: ");
+      Serial.println(steeringSensitivity);
+    }
+  }
+  lastDpad = dpad;
+
+  // ==========================
+  // STEERING CONTROLS
+  // ==========================
+  if (tiltMode) {
+    int ax = myGamepad->accelX();
+    targetSteer = processTiltSteering(ax);
+  } else {
+    int sx = myGamepad->axisX();
+    if (abs(sx) > 60) {
+      targetSteer = map(sx, -512, 512, steerCenter() - sLimit, steerCenter() + sLimit);
+    } else {
+      currentSteer += (center - currentSteer) * 0.2;
+    }
+  }
+
+  // Throttle and Reverse inputs (r2 & l2)
+  int r2 = myGamepad->r2();
+  int l2 = myGamepad->l2();
+  int throttleInput = 0;
+
+  if (r2 > 100) {
+    throttleInput = map(r2, 0, 1023, 0, (currentMode == MODE_BEAST) ? POWER_BEAST_MAX : POWER_PRECISION);
+  } else if (l2 > 100) {
+    throttleInput = -map(l2, 0, 1023, 0, 250);
+  }
+
+  // ===== ESC STATE MACHINE =====
+  switch (escState) {
+    case ESC_NEUTRAL:
+      if (throttleInput > 0) escState = ESC_FORWARD;
+      else if (throttleInput < 0) {
+        escState = ESC_BRAKE;
+        lastBrakeTime = millis();
+      }
+      break;
+    case ESC_FORWARD:
+      if (throttleInput < 0) {
+        escState = ESC_BRAKE;
+        lastBrakeTime = millis();
+      }
+      break;
+    case ESC_BRAKE:
+      if (millis() - lastBrakeTime > BRAKE_DELAY) {
+        if (throttleInput < 0) escState = ESC_REVERSE;
+        else if (throttleInput == 0) escState = ESC_NEUTRAL;
+      }
+      break;
+    case ESC_REVERSE:
+      if (throttleInput > 0) escState = ESC_FORWARD;
+      break;
+  }
+
+  // ===== APPLY OUTPUT =====
+  switch (escState) {
+    case ESC_FORWARD: targetThrottle = throttleInput; break;
+    case ESC_BRAKE: targetThrottle = -250; break;
+    case ESC_REVERSE: targetThrottle = throttleInput; break;
+    case ESC_NEUTRAL:
+    default: targetThrottle = 0; break;
+  }
+
+  // Mid-Air Control (Right Analog Vertical)
+  int ry = myGamepad->axisRY();
+  int DEADZONE = 140;
+
+  if (currentMode == MODE_BEAST) {
+    bool noOtherInputs = abs(myGamepad->axisX()) < 60 && myGamepad->r2() < 20 && myGamepad->l2() < 20 && !myGamepad->a() && !myGamepad->b() && !myGamepad->x() && !myGamepad->y() && !myGamepad->l1() && !myGamepad->r1();
+
+    if (abs(ry) > DEADZONE && noOtherInputs) {
+      if (ry > 0) {
+        targetThrottle += map(ry, DEADZONE, 512, -100, -450);
+      } else {
+        targetThrottle += map(ry, -512, -DEADZONE, 600, 200);
+      }
+      airAdjust = map(ry, -512, 512, -150, 150);
+    } else {
+      airAdjust *= 0.8;
+      if (abs(airAdjust) < 2) airAdjust = 0;
+    }
+  }
+
+  // BOOST Adjustment
+  if (boostActive) {
+    if (targetThrottle < POWER_BOOST) targetThrottle = POWER_BOOST;
+  }
+  if (driftState && targetThrottle > 0) {
+    targetThrottle = max(targetThrottle, 300);
+  }
+
+  // WHEELIE BURST (Hold A)
+  bool aNow = myGamepad->a();
+  if (aNow) {
+    if (padWheelieTime == 0) padWheelieTime = now;
+    unsigned long elapsed = now - padWheelieTime;
+    if (elapsed < 250) targetThrottle = POWER_WHEELIE;
+    else targetThrottle = POWER_PRECISION;
+  } else {
+    padWheelieTime = 0;
+  }
+
+  if (wheelieState) {
+    if (now - wheelieStartTime < 250) targetThrottle = 850;
+    else if (now - wheelieStartTime < 1000) targetThrottle = 430;
+    else wheelieState = false;
+  }
+
+  // Battery Voltage Read Loop
+  float rawVoltageSample = 0;
+  for (int i = 0; i < 10; i++) {
+    rawVoltageSample += analogRead(BATTERY_PIN);
+  }
+  rawVoltageSample /= 10.0;
+  voltage = rawVoltageSample * (3.3 / 4095.0) * 4.7;
+
+  if (voltage < 6.8 && !flashTriggered) {
+    lowBattFlashActive = true;
+    flashTriggered = true;
+  }
+
+  // LVC Protections
+  if (voltage < 7.0) targetThrottle *= 0.5;
+  if (voltage < 6.4) targetThrottle = 0;
+
+  if (voltage <= 6.8) {
+    lowBattFlashActive = true;
+  } else if (voltage > 7.0) {
+    lowBattFlashActive = false;
+    flashTriggered = false;
+    flashCount = 0;
+  }
+  if (!lowBattFlashActive) {
+    flashCount = 0;
+  }
+
+  targetAngle = SPOILER_FLAT;
+
+  if (currentMode == MODE_BEAST) {
+    if (BackFlip) targetAngle = 45;
+    else if (FrontFlip) targetAngle = 30;
+    else if (escState == ESC_BRAKE) targetAngle = 90;
+    else if (boostActive) targetAngle = 10;
+    else if (driftState) targetAngle = 15;
+  }
+
+  // Output Execution Section
+  currentSteer += (targetSteer - currentSteer) * 0.2f;
+  steeringServo.write((int)currentSteer);
+
+  airAdjust = constrain(airAdjust, -120, 120);
+  targetThrottle = constrain(targetThrottle + airAdjust, -400, POWER_BEAST_MAX);
+
+  currentThrottle += (targetThrottle - currentThrottle) * ((currentMode == MODE_BEAST) ? 0.15f : 0.05f);
+
+  int escSignal = constrain(1500 + (int)currentThrottle, 1000, 2000);
+  esc.writeMicroseconds(escSignal);
+
+  digitalWrite(BRAKE_LIGHT_PIN, (escState == ESC_BRAKE || escState == ESC_REVERSE));
+
+  updateServoSmooth();
+  updateGamepadLed(now);
+  esp_task_wdt_reset();
+}
