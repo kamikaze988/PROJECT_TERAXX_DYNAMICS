@@ -1,8 +1,15 @@
-PROJECT TERAXX DYNAMICS — TERAXX X-CORE
+<img width="3048" height="4064" alt="IMG_20261021_231946_219@-774177884" src="https://github.com/user-attachments/assets/ec231d14-18c6-44ef-8ce1-99e4e9facabe" />PROJECT TERAXX DYNAMICS — TERAXX X-CORE
 
 TERAXX X-CORE is an ESP32-based off-road RC basher project focused on combining high-performance RC control, custom electronics, telemetry, and software into one platform.
 
 The system uses an ESP32 as the vehicle controller and supports a PS4 gamepad for wireless control. The project also includes a custom web-based dashboard for monitoring and controlling the vehicle.
+
+
+<img width="3048" height="4064" alt="IMG_20261![Uploading IMG_20261021_231940_754@1733064410.jpg…]()
+ 
+021_231946_219@-774177884 (1)" src="https://github.com/user-attachments/assets/5c8d36a8-19ca-457d-af12-43110925bdbd" />
+
+
 
 CURRENT FEATURES
  PS4/PS3 wireless gamepad control,
