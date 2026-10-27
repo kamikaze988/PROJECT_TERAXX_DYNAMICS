@@ -83,7 +83,7 @@ The goal of TERAXX X-CORE is to push the boundaries of what a DIY hobbyist platf
 
 ---
 <div align="center">
-  <b>Built with ⚙️ and ☕ by a builder who refuses to just buy a Traxxas.</b>
+  <b>Built from scratch and inspiration's by a builder who refuses to just buy a Traxxas.</b>
 </div>![Uploading 1000496301.jpg…]()
 <img width="4064" height="3048" alt="1000509648" src="https://github.com/user-attachments/assets/8feb21c2-349e-4c75-801f-bc895076d9f8" />
 <img width="3048" height="4064" alt="1000517797" src="https://github.com/user-attachments/assets/aee77713-2ecc-4aac-9458-32387533c4a6" />
