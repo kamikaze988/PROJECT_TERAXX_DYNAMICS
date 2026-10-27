@@ -1,63 +1,89 @@
-# 🏎️ PROJECT TERAXX DYNAMICS — TERAXX X-CORE
-
-**Bashing Beyond Crashing.**
-
-TERAXX X-CORE is a scratch-built, ESP32-powered 1/18 scale off-road RC basher. It is an experiment in combining embedded programming, real-time sensor fusion, custom electronics, and a live web interface into a single custom vehicle platform. 
-
-Unlike off-the-shelf RC cars, this build replaces proprietary radio systems with an ESP32 microcontroller, allowing for advanced features like gyro-assisted steering, auto-leveling, and GPS Return-to-Home.
-
-## 📸 Gallery
-
 <div align="center">
-  <img src="https://github.com/user-attachments/assets/ec231d14-18c6-44ef-8ce1-99e4e9facabe" width="45%" />
-  <img src="https://github.com/user-attachments/assets/5c8d36a8-19ca-457d-af12-43110925bdbd" width="45%" />
-</div>
-<br>
-<div align="center">
-  <i>Custom aluminum pan chassis, PVC structural spine, and DIY cardboard body with LED bar.</i>
+  <h1>🏎️ PROJECT TERAXX DYNAMICS — TERAXX X-CORE</h1>
+  <h3><i>"Bashing Beyond Crashing."</i></h3>
+  <p>An ESP32-powered, custom-built 2WD off-road RC basher featuring real-time sensor fusion, auto-leveling, and a live web telemetry HUD.</p>
 </div>
 
 ---
 
-## ⚡ Core Features
+## 📖 About The Project
+TERAXX X-CORE isn't just another RC car. It is an experiment in combining custom mechanical fabrication, embedded programming, wireless controllers, vehicle telemetry, and safety systems into one unified platform.
 
-### 🎮 Control & Drive
-*   **Wireless Input:** PS4/PS3 gamepad control via Bluepad32 (with Zero-latency BT).
-*   **Dual Steering Modes:** Normal analog stick steering, plus a "Tilt Steering" mode that uses the controller's internal accelerometer.
-*   **Driving Profiles:** Switch between "Precision" (smooth, controlled) and "Beast" (maximum throttle and aggressive dynamics) modes.
-*   **Action Buttons:** Dedicated boost mode, wheelie control, and adjustable steering sensitivity/response on the fly.
-
-### 🧠 Smart Systems & Physics (Firmware)
-*   **Auto-Leveling Assist:** Uses an MPU6050 IMU and a complementary filter to calculate pitch angle mid-air. A PD control loop automatically levels the car if the driver releases the right analog stick. *(Disabled during wheelies).*
-*   **Gyro-Assisted Counter-Steering:** Automatically counter-steers when the rear end slides out, keeping the car straight on loose dirt.
-*   **Aero Dynamics & Flips:** Logic that translates right analog stick inputs into precise throttle/brake pulses to execute mid-air backflips and frontflips. *(Also includes an active aero spoiler servo).*
-*   **GPS Return-to-Home (RTH):** If the Bluetooth signal drops, the ESP32 calculates the heading via GPS and navigates the car back toward the home coordinates.
-
-### 📊 Telemetry & Interface
-*   **ESP32 Web HUD:** The car broadcasts its own WiFi network. Connect to it to view a live, draggable dashboard featuring speed/RPM, battery voltage, steering controls, and active telemetry.
-*   **Safety Failsafes:** Multi-tier adaptive Low Voltage Cutoff (LVC) to protect the LiPo battery, and connection-loss failsafes.
-*   **Black-Box Logging:** *(Coming Soon)* SD card integration for high-frequency telemetry tracking.
+The system uses an **ESP32** as the central vehicle controller, completely replacing a traditional RC receiver. It supports a PS4 gamepad for wireless control, hosts a custom mobile-friendly Web Dashboard, and utilizes an MPU6050 gyro for advanced driving dynamics.
 
 ---
 
-## ⚙️ System Architecture
+## 📸 Build Gallery
+*(Note: The first two are your linked images, replace the others with your uploaded photos)*
 
-The brain of the car is an **ESP32**, which handles multiple tasks simultaneously using FreeRTOS:
-1.  **Bluetooth Classic:** Receiving PS4 controller data.
-2.  **WiFi & WebServer:** Hosting the HTML/JS dashboard and handling telemetry requests.
-3.  **I2C Bus:** Polling the MPU6050 for real-time gyro (yaw) and accelerometer (pitch) data.
-4.  **UART:** Parsing NMEA sentences from the GPS module.
-5.  **PWM:** Controlling the ESC, Steering Servo, and Aero Spoiler.
+| Chassis Top View | Chassis Bottom View |
+|:---:|:---:|
+| <img src="https://github.com/user-attachments/assets/ec231d14-18c6-44ef-8ce1-99e4e9facabe" width="400" /> | <img src="https://github.com/user-attachments/assets/5c8d36a8-19ca-457d-af12-43110925bdbd" width="400" /> |
 
-## 🛠️ Hardware Stack
-*   **MCU:** ESP32 (Dual-Core)
-*   **Chassis:** Custom aluminum pan + PVC pipe structural spine (for torsional rigidity).
-*   **Sensors:** MPU6050 (IMU), NEO-6M (GPS).
-*   **Actuators:** 180° Steering Servo, Brushed ESC + Motor, Aero Spoiler Servo.
+| Custom PVC Boom & Aluminum Pan | Cardboard Body Shell (Front) |
+|:---:|:---:|
+| <img src="[PASTE IMAGE URL HERE]" width="400" /> | <img src="[PASTE IMAGE URL HERE]" width="400" /> |
+
+<div align="center">
+  <img src="[PASTE IMAGE URL HERE]" width="600" />
+</div>
 
 ---
 
-## 🧠 Project Goal
-The goal of TERAXX X-CORE isn't simply to build another RC car. It's an experiment in pushing cheap RC hardware to its absolute limits through embedded programming and real-time physics calculations. It is a testbed for safety systems, telemetry, and custom user interfaces.
+## ✨ Current Features
 
-*For more info, check out the [JOURNAL.md](JOURNAL.md) to see the build process!*
+### 🎮 Control & Steering
+*   **PS4/PS3 Wireless Gamepad** control via Bluetooth.
+*   **Normal Mode:** Analog stick steering with adjustable dead zone and sensitivity.
+*   **Tilt Mode:** Uses the controller's accelerometer to steer.
+*   **Web/Mobile Control:** Alternative driving interface via the ESP32 Web Dashboard.
+*   **Keyboard Control** support.
+*   **Servo Smoothing:** Prevents jerky steering movements.
+
+### ⚡ Performance & Driving Dynamics
+*   **Precision & Beast Modes:** Toggle between limited power and full 950 PWM throttle.
+*   **Boost & Wheelie Control:** Instant power surges and wheelie bursts.
+*   **Aerodynamics & Flips:** The ESP32 reads the right analog joystick to command throttle/braking, enabling mid-air **Backflips and Frontflips**.
+*   **Active Aero (Spoiler):** A servo-driven spoiler that adapts dynamically to boost, braking, and jump logic.
+
+### 📊 Telemetry & Web Dashboard
+*   The ESP32 hosts a custom, mobile-friendly web HUD.
+*   Live battery-voltage monitoring.
+*   Speed/RPM display with a performance graph.
+*   Real-time gauges and steering/throttle controls.
+
+### 🛡️ Safety & Failsafes
+*   **Gamepad Connection Failsafe:** If the Bluetooth connection drops, the car stops.
+*   **GPS Return-to-Home (RTH):** If the signal is lost beyond the timeout, the car uses GPS to navigate back to its starting point.
+*   **Adaptive Low Voltage Cutoff (LVC):** Protects the LiPo battery from over-discharging with soft and hard power cuts.
+
+### 💡 Accessories
+*   Halo lighting control.
+*   Roof/accessory light control.
+
+---
+
+## ⚙️ System Deep Dive
+
+### 🛞 The Steering Pipeline
+The steering system supports both analog stick control and tilt control. In Normal Mode, the ESP32 applies an exponential curve (Expo) to the analog stick input to soften the center feel, combined with a **Gyro Yaw Assist** that counter-steers when the rear tires lose traction.
+
+### 🌐 The Web Dashboard
+The ESP32 acts as a WiFi Access Point. Connect to it from any smartphone to access the TERAXX DYNAMICS dashboard, where you can see real-time speed, battery voltage, and even drive the car if your gamepad dies.
+
+### 🛡️ Failsafe Logic
+Safety is built into the core loop. If the controller disconnects for more than 1.5 seconds, the system automatically engages the GPS Return-to-Home logic, steering the car back toward the home coordinates locked at boot.
+
+---
+
+## 🎯 Project Goal
+The goal of TERAXX X-CORE is to push the boundaries of what a DIY hobbyist platform can do. By bringing drone-level sensor fusion and telemetry into a ground RC vehicle, we create a machine that is faster, smarter, and safer than off-the-shelf bashers. 
+
+**For more info, drop comments or open an Issue!**
+
+---
+<div align="center">
+  <b>Built with ⚙️ and ☕ by a builder who refuses to just buy a Traxxas.</b>
+</div>![Uploading 1000496301.jpg…]()
+<img width="4064" height="3048" alt="1000509648" src="https://github.com/user-attachments/assets/8feb21c2-349e-4c75-801f-bc895076d9f8" />
+<img width="3048" height="4064" alt="1000517797" src="https://github.com/user-attachments/assets/aee77713-2ecc-4aac-9458-32387533c4a6" />
