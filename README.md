@@ -1,88 +1,63 @@
-<img width="3048" height="4064" alt="IMG_20261021_231946_219@-774177884" src="https://github.com/user-attachments/assets/ec231d14-18c6-44ef-8ce1-99e4e9facabe" />PROJECT TERAXX DYNAMICS — TERAXX X-CORE
+# 🏎️ PROJECT TERAXX DYNAMICS — TERAXX X-CORE
 
-TERAXX X-CORE is an ESP32-based off-road RC basher project focused on combining high-performance RC control, custom electronics, telemetry, and software into one platform.
+**Bashing Beyond Crashing.**
 
-The system uses an ESP32 as the vehicle controller and supports a PS4 gamepad for wireless control. The project also includes a custom web-based dashboard for monitoring and controlling the vehicle.
+TERAXX X-CORE is a scratch-built, ESP32-powered 1/18 scale off-road RC basher. It is an experiment in combining embedded programming, real-time sensor fusion, custom electronics, and a live web interface into a single custom vehicle platform. 
 
+Unlike off-the-shelf RC cars, this build replaces proprietary radio systems with an ESP32 microcontroller, allowing for advanced features like gyro-assisted steering, auto-leveling, and GPS Return-to-Home.
 
-<img width="3048" height="4064" alt="IMG_20261![Uploading IMG_20261021_231940_754@1733064410.jpg…]()
- 
-021_231946_219@-774177884 (1)" src="https://github.com/user-attachments/assets/5c8d36a8-19ca-457d-af12-43110925bdbd" />
+## 📸 Gallery
 
+<div align="center">
+  <img src="https://github.com/user-attachments/assets/ec231d14-18c6-44ef-8ce1-99e4e9facabe" width="45%" />
+  <img src="https://github.com/user-attachments/assets/5c8d36a8-19ca-457d-af12-43110925bdbd" width="45%" />
+</div>
+<br>
+<div align="center">
+  <i>Custom aluminum pan chassis, PVC structural spine, and DIY cardboard body with LED bar.</i>
+</div>
 
+---
 
-CURRENT FEATURES
- PS4/PS3 wireless gamepad control,
- Analog steering,
- Mobile-friendly web control interface,
- Tilt steering mode,
- Adjustable steering sensitivity,
- Steering dead zone,
- 180° servo steering,
- Servo smoothing,
- Throttle / reverse control,
- precision / beast driving modes,
- active-aero spoiler control logic,
- backflip/front flip jump control with the right analog joystick,
- Boost mode,
- Wheelie control,
- Halo lighting control,
- Roof/accessory control,
- Live telemetry,
- Battery-voltage monitoring,
- Speed/RPM display,
- Performance graph,
- Gamepad connection failsafe logic,
- adaptive low voltage cutoff logic,
- GPS Return-to-Home logic,
- ESP32 web dashboard,
- Keyboard control support,
- Failsafe System,
+## ⚡ Core Features
 
-TERAXX X-CORE includes a failsafe system designed to react when the controller connection is lost. If the connection remains lost beyond the configured timeout, the vehicle enters its failsafe/Return-to-Home behavior rather than simply continuing with the last control input.
+### 🎮 Control & Drive
+*   **Wireless Input:** PS4/PS3 gamepad control via Bluepad32 (with Zero-latency BT).
+*   **Dual Steering Modes:** Normal analog stick steering, plus a "Tilt Steering" mode that uses the controller's internal accelerometer.
+*   **Driving Profiles:** Switch between "Precision" (smooth, controlled) and "Beast" (maximum throttle and aggressive dynamics) modes.
+*   **Action Buttons:** Dedicated boost mode, wheelie control, and adjustable steering sensitivity/response on the fly.
 
-STEERING SYSTEM
+### 🧠 Smart Systems & Physics (Firmware)
+*   **Auto-Leveling Assist:** Uses an MPU6050 IMU and a complementary filter to calculate pitch angle mid-air. A PD control loop automatically levels the car if the driver releases the right analog stick. *(Disabled during wheelies).*
+*   **Gyro-Assisted Counter-Steering:** Automatically counter-steers when the rear end slides out, keeping the car straight on loose dirt.
+*   **Aero Dynamics & Flips:** Logic that translates right analog stick inputs into precise throttle/brake pulses to execute mid-air backflips and frontflips. *(Also includes an active aero spoiler servo).*
+*   **GPS Return-to-Home (RTH):** If the Bluetooth signal drops, the ESP32 calculates the heading via GPS and navigates the car back toward the home coordinates.
 
-The steering system supports both:
+### 📊 Telemetry & Interface
+*   **ESP32 Web HUD:** The car broadcasts its own WiFi network. Connect to it to view a live, draggable dashboard featuring speed/RPM, battery voltage, steering controls, and active telemetry.
+*   **Safety Failsafes:** Multi-tier adaptive Low Voltage Cutoff (LVC) to protect the LiPo battery, and connection-loss failsafes.
+*   **Black-Box Logging:** *(Coming Soon)* SD card integration for high-frequency telemetry tracking.
 
-NORMAL MODE
+---
 
-PS4 analog stick steering,
-Adjustable dead zone,
-Adjustable sensitivity,
-Servo smoothing,
+## ⚙️ System Architecture
 
-TILT MODE
+The brain of the car is an **ESP32**, which handles multiple tasks simultaneously using FreeRTOS:
+1.  **Bluetooth Classic:** Receiving PS4 controller data.
+2.  **WiFi & WebServer:** Hosting the HTML/JS dashboard and handling telemetry requests.
+3.  **I2C Bus:** Polling the MPU6050 for real-time gyro (yaw) and accelerometer (pitch) data.
+4.  **UART:** Parsing NMEA sentences from the GPS module.
+5.  **PWM:** Controlling the ESC, Steering Servo, and Aero Spoiler.
 
-Uses the controller's accelerometer,
-Configurable tilt dead zone,
-Adjustable steering sensitivity (with the Dpad buttons),
-Converts controller movement into steering commands,
+## 🛠️ Hardware Stack
+*   **MCU:** ESP32 (Dual-Core)
+*   **Chassis:** Custom aluminum pan + PVC pipe structural spine (for torsional rigidity).
+*   **Sensors:** MPU6050 (IMU), NEO-6M (GPS).
+*   **Actuators:** 180° Steering Servo, Brushed ESC + Motor, Aero Spoiler Servo.
 
-WEB DASHBOARD 
+---
 
-The ESP32 hosts a custom TERAXX DYNAMICS dashboard featuring:
+## 🧠 Project Goal
+The goal of TERAXX X-CORE isn't simply to build another RC car. It's an experiment in pushing cheap RC hardware to its absolute limits through embedded programming and real-time physics calculations. It is a testbed for safety systems, telemetry, and custom user interfaces.
 
-Real-time gauges,
-Speed display,
-RPM estimation,
-Battery voltage,
-Steering controls,
-Throttle/reverse controls,
-Boost and wheelie controls,
-Halo and roofligth controls,
-
-AERO DYNAMICS (active spoiler/backflip and front flip)
-
-The esp32 aero logic turns the right analog joystick inputs to throttle/braking commands therefore enabling backflips and front flips.
-While for the active spoiler esp32 controls a servo motor's degree which controls the spoiler which adapts to the boost, brake, backflip logic
-
-🧠 PROJECT GOAL
-
-The goal of TERAXX X-CORE isn't simply to build another RC car.
-
-It's an experiment in combining RC hardware, embedded programming, wireless controllers, vehicle telemetry, safety systems, and a custom user interface into rc vehicle platform.
-
-For more info drop comments 
-
-Bashing Beyond Crashing.
+*For more info, check out the [JOURNAL.md](JOURNAL.md) to see the build process!*
