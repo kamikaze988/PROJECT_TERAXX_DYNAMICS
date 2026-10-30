@@ -27,7 +27,7 @@ The system uses an **ESP32** as the central vehicle controller, completely repla
 
 ##  Current Features
 
-### 🎮 Control & Steering
+###  Control & Steering
 *   **PS4/PS3 Wireless Gamepad** control via Bluetooth.
 *   **Normal Mode:** Analog stick steering with adjustable dead zone and sensitivity.
 *   **Tilt Mode:** Uses the controller's accelerometer to steer.
@@ -38,7 +38,7 @@ The system uses an **ESP32** as the central vehicle controller, completely repla
 ###  Performance & Driving Dynamics
 *   **Precision & Beast Modes:** Toggle between limited power and full 950 PWM throttle.
 *   **Boost & Wheelie Control:** Instant power surges and wheelie bursts.
-*   **Aerodynamics & Flips:** The ESP32 reads the right analog joystick to command throttle/braking, enabling mid-air **Backflips and Frontflips**.
+*   **Aerodynamics & Flips:** The ESP32 reads the right analog joystick to command throttle/braking, enabling mid-air **Backflips and Front flips**.
 *   **Active Aero (Spoiler):** A servo-driven spoiler that adapts dynamically to boost, braking, and jump logic.
 
 ###  Telemetry & Web Dashboard
