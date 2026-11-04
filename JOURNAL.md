@@ -1,9 +1,16 @@
 TITLE: PROJECT_TERAXX_DYNAMICS (THE X-CORE VERSION)
 AUTHOR: KAMIKAZE
 Description: TERAXX X-CORE is a scratch-built  RC car that uses custom ESP32 to process c++ logic and signals. this firmware  bridges the gap between hobbyist vehicle and autonomous robotics.
+
 progress: 70%.  
-stil need parts like a 45-50 cm differential drivetrain for the double rear wishbone suspension.25T motor with a 2s battery and a 180 servo then some halo led light. I've been working on it since September first but I'll give you guys the update from October 14th.
+stil need parts like a 45-50 cm differential drivetrain for the double rear wishbone suspension.25T motor with a 2s battery and a 180 servo then some halo led light. I've been working on it since September first but I'll give you guys the update from October.
 created at: 2026-10-16th
+
+October 12th - 4 hours
+
+· Goal: Test the new ESP32 on the PVC chassis.
+· The Setback: The ESP32 board fried during testing. I am also currently missing the rear differential drivetrain, the drive motor, and a 2S high-drain LiPo battery to actually put power to the wheels.
+· Next Steps: I need to source these components to complete the physical build and test the PID auto-leveling firmware. I am applying for this grant to fund these specific missing parts
 
 October 14th - 3 Hours
 
