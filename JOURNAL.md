@@ -15,7 +15,7 @@ October 12th - 4 hours
 October 14th - 3 Hours
 
 · Goal: Upgrade from the flexing plastic chassis to a PVC pipe chassis.
-· What I did: Built a new PVC pipe and mounted all the components<img width="3048" height="4064" alt="1000881056" src="https://github.com/user-attachments/assets/816d0473-d6ff-4f47-818d-cdb03c97592f" />
+· What I did: Built a new PVC pipe and mounted all the components.
 <img width="3048" height="4064" alt="1000881060" src="https://github.com/user-attachments/assets/67928632-523b-405d-8d73-7842ece48f39" />
 <img width="3048" height="4064" alt="1000881061" src="https://github.com/user-attachments/assets/4337efbd-d96b-49ec-b187-02451012fab0" />
 · Challenges: the steering linkages were binding. 
