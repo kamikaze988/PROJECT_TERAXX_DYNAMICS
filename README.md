@@ -1,7 +1,7 @@
 <div align="center">
   <h1> PROJECT TERAXX DYNAMICS — TERAXX X-CORE</h1>
   <h3><i>"Bashing Beyond Crashing."</i></h3>
-  <p>An ESP32-powered, custom-built 2WD off-road RC basher featuring real-time sensor fusion, auto-leveling, and a live web telemetry HUD.</p>
+  <p>An ESP32-powered, custom-built 2WD off-road RC basher featuring gamepad/phone control, auto-leveling, and a live web telemetry HUD.</p>
 </div>
 
 ---
